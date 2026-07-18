@@ -1,0 +1,4 @@
+model,parameters_M,size_MB,latency_ms,throughput_texts_per_s
+distilbert,67,268,5.2,1747
+roberta,125,499,9.1,1162
+deberta,139,557,11.8,1179

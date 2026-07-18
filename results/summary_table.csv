@@ -1,0 +1,5 @@
+model,emotion,sentiment
+svm_tfidf,0.345,0.5612
+distilbert,0.4383,0.6881
+roberta,0.4577,0.7196
+deberta,0.4691,0.7006

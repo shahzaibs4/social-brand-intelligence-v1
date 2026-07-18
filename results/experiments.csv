@@ -1,0 +1,9 @@
+model,task,quick_test,epochs_trained,threshold,train_minutes,texts_per_second,accuracy,precision_macro,recall_macro,f1_macro
+distilbert,sentiment,False,4.0,0.5,16.2,758.7,0.6915,0.6874,0.6901,0.6881
+distilbert,emotion,False,6.0,0.2,16.9,928.2,0.379,0.4231,0.4895,0.4383
+roberta,sentiment,False,4.0,0.5,28.5,439.8,0.72,0.7104,0.7328,0.7196
+roberta,emotion,False,6.0,0.2,33.0,478.3,0.3901,0.439,0.5138,0.4577
+deberta,sentiment,False,4.0,0.5,43.6,223.5,0.7061,0.7105,0.703,0.7006
+deberta,emotion,False,5.0,0.3,43.1,260.7,0.4456,0.4752,0.4937,0.4691
+svm_tfidf,sentiment,False,0.0,,0.0,,0.5745,0.5676,0.5717,0.5612
+svm_tfidf,emotion,False,0.0,,0.0,,0.3437,0.6292,0.2638,0.345

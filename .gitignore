@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Datasets - re-downloadable with notebook/download_data.ipynb
+data/
+
+# Fine-tuned models - several GB, too big for GitHub (100 MB file limit).
+# They are reproduced by running notebook/models.ipynb
+models/
+
+# Training checkpoints
+**/checkpoints/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Word documents (report drafts stay out of the code repo)
+*.docx
+~$*.docx
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+nohup.out
