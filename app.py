@@ -71,6 +71,16 @@ def load_models():
     return sent_tok, sent_model, emo_tok, emo_model
 
 
+@st.cache_data
+def load_figure_descriptions():
+    """Read the figure catalog so every chart can show its explanation."""
+    path = os.path.join(RESULTS, "figures_catalog.csv")
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_csv(path)
+    return dict(zip(df["figure_file"], df["description"]))
+
+
 def analyse(texts):
     """Run BOTH models on a list of texts.
 
@@ -110,11 +120,14 @@ def analyse(texts):
     return pd.DataFrame(rows)
 
 
-def show_image(filename, caption=None):
-    """Show a results image if it exists."""
+def show_image(filename, title=None):
+    """Show a results image with its explanation from the figure catalog."""
     path = os.path.join(RESULTS, filename)
     if os.path.exists(path):
-        st.image(path, caption=caption, use_column_width=True)
+        st.image(path, caption=title, use_column_width=True)
+        desc = load_figure_descriptions().get(filename)
+        if desc:
+            st.caption("What this shows: " + desc)
 
 
 # ---------- page setup ----------
@@ -125,6 +138,7 @@ st.set_page_config(page_title="Brand Intelligence", page_icon="📊", layout="wi
 page = st.sidebar.radio("Pages", [
     "About the Project",
     "Results",
+    "Fine-Tuning Details",
     "Live Analysis",
 ], key="nav")
 st.sidebar.markdown("---")
@@ -177,6 +191,8 @@ you are using right now.
 # ============================================================
 elif page == "Results":
     st.title("Experimental Results")
+    st.write("Every table and chart below comes directly from the experiments; "
+             "an explanation is shown under each one.")
 
     csv = os.path.join(RESULTS, "experiments.csv")
     if os.path.exists(csv):
@@ -185,11 +201,20 @@ elif page == "Results":
         df = df.drop(columns=["quick_test"], errors="ignore")
         st.subheader("All experiment runs")
         st.dataframe(df, use_container_width=True)
+        st.caption("What this shows: one row per training run on the official test sets. "
+                   "'f1_macro' is the headline metric (every class counts equally, which "
+                   "matters because the emotion labels are heavily imbalanced). "
+                   "'threshold' is the decision cut-off tuned on the validation set for the "
+                   "multi-label emotion task. 'texts_per_second' is measured inference speed.")
 
         st.subheader("Macro-F1 summary")
         pivot = df.pivot_table(index="model", columns="task", values="f1_macro")
         st.dataframe(pivot.style.highlight_max(axis=0, color="#c6efce"),
                      use_container_width=True)
+        st.caption("What this shows: the headline comparison. Green marks the best model "
+                   "per task - RoBERTa wins sentiment (0.720), DeBERTa wins emotion (0.469). "
+                   "The SVM row shows how far classical machine learning falls behind: "
+                   "13-16 points on both tasks.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -197,13 +222,22 @@ elif page == "Results":
         show_image("robustness_across_datasets.png", "Robustness across the two datasets")
     with col2:
         show_image("rq2_emotions_within_sentiment.png",
-                   "The emotions hiding inside each sentiment class (RQ2)")
+                   "The emotions hiding inside each sentiment class")
         eff = os.path.join(RESULTS, "efficiency.csv")
         if os.path.exists(eff):
             st.subheader("Efficiency")
             st.dataframe(pd.read_csv(eff), use_container_width=True)
+            st.caption("What this shows: the speed/size side of the comparison. DistilBERT "
+                       "answers in 5.2 ms and processes ~1,750 texts per second - up to 2.3x "
+                       "faster than the larger models while keeping 96% of the best sentiment "
+                       "quality. This is the trade-off that decides which model to deploy.")
 
-    with st.expander("Learning curves and confusion matrices (per run)"):
+    with st.expander("Learning curves and confusion matrices (per training run)"):
+        st.caption("Learning curves: training and validation loss per epoch - both falling "
+                   "and then flattening together means the model learned properly without "
+                   "overfitting. Confusion matrices: where the sentiment models make mistakes - "
+                   "almost all errors are between NEIGHBOURING classes (negative-neutral or "
+                   "neutral-positive); direct negative-positive confusions are rare.")
         images = sorted(f for f in os.listdir(RESULTS)
                         if f.startswith(("curve_", "cm_")))
         cols = st.columns(3)
@@ -213,27 +247,87 @@ elif page == "Results":
 
 
 # ============================================================
-# Page 3 - Live Analysis
+# Page 3 - Fine-Tuning Details
+# ============================================================
+elif page == "Fine-Tuning Details":
+    st.title("How the Models Were Fine-Tuned")
+    st.write("Each pre-trained transformer was adapted to our tasks by full fine-tuning: "
+             "a new classification head is added, and ALL weights (head + encoder) are "
+             "updated on the task data. Below: the exact settings and the reason for each.")
+
+    st.subheader("Data splits")
+    st.markdown("""
+The **official** train / validation / test splits of each benchmark were kept unchanged:
+
+| Dataset | Train | Validation | Test |
+|---------|-------|------------|------|
+| TweetEval sentiment (Twitter) | 45,615 | 2,000 | 12,284 |
+| GoEmotions (Reddit) | 43,410 | 5,426 | 5,427 |
+
+**Why:** official splits keep results comparable with published papers and make data
+leakage impossible - the model learns only from *train*, the best epoch and the decision
+threshold are chosen only on *validation*, and *test* is touched exactly once at the end.
+""")
+
+    st.subheader("Hyperparameters and why they were chosen")
+    st.markdown("""
+| Setting | Value | Why |
+|---------|-------|-----|
+| Optimiser | AdamW | the standard optimiser for transformers (Adam with correct weight decay) |
+| Learning rate | **2e-5**, linear decay | the standard fine-tuning value - small enough to adapt the pre-trained weights without destroying them |
+| Warm-up | first **6%** of steps | protects the pre-trained weights while the new random classification head settles |
+| Weight decay | 0.01 | mild protection against overfitting |
+| Effective batch size | **64 for every model** | fairness: all models see identical training dynamics (bigger models use gradient accumulation: 64x1, 32x2, 16x4) |
+| Max sequence length | 64 tokens | our data analysis showed 95% of posts are under 27 words |
+| Max epochs | 4 (sentiment) / 6 (emotion) | the 28-label emotion task needs more passes to learn rare classes |
+| Early stopping | patience 2, best epoch restored | stops training when validation stops improving - prevents overfitting (DeBERTa-emotion stopped at epoch 5) |
+| Random seed | 42 (fixed) | the same run always gives the same result |
+""")
+
+    st.subheader("The two classification heads")
+    st.markdown("""
+- **Sentiment (single-label):** softmax over 3 classes + cross-entropy loss -
+  each tweet has exactly one correct class.
+- **Emotion (multi-label):** **28 independent sigmoid outputs** + binary cross-entropy -
+  one comment can carry several emotions at once, so each emotion is its own yes/no decision.
+  The probability cut-off is **tuned on the validation set** (chosen: 0.30 for DeBERTa)
+  because a naive 0.5 threshold predicts almost nothing for rare emotions.
+""")
+
+    st.subheader("Fine-tuning setup")
+    fig_path = os.path.join(RESULTS, "fig_finetuning.png")
+    if os.path.exists(fig_path):
+        st.image(fig_path, width=430)
+        st.caption("What this shows: the input post is tokenised, passes through the trainable "
+                   "transformer encoder, and a new head produces the prediction. The red loop is "
+                   "the AdamW weight update driven by the loss - repeated over the training data.")
+
+    st.subheader("What fine-tuning achieved")
+    st.markdown("""
+| Run | Epochs trained | Macro-F1 (test) |
+|-----|----------------|-----------------|
+| DistilBERT sentiment | 4 | 0.688 |
+| **RoBERTa sentiment** | 4 | **0.720** |
+| DeBERTa sentiment | 4 | 0.701 |
+| DistilBERT emotion | 6 | 0.438 |
+| RoBERTa emotion | 6 | 0.458 |
+| **DeBERTa emotion** | 5 (early-stopped) | **0.469** |
+""")
+
+
+# ============================================================
+# Page 4 - Live Analysis
 # ============================================================
 else:
     st.title("Live Analysis")
     st.write("Type any customer post and both models will analyse it.")
 
-    # load the models as soon as this page opens (not on the button click),
-    # so pressing Analyse is instant and can't disturb the page state
-    load_models()
-
     text = st.text_area("Post to analyse",
                         "The delivery was late AGAIN and support never replied. So disappointed.",
                         height=100)
 
-    # remember the last analysis in the session, so the result stays
-    # on screen even when the app re-runs
     if st.button("Analyse", type="primary") and text.strip():
-        st.session_state["last_result"] = analyse([text]).iloc[0]
-
-    if "last_result" in st.session_state:
-        result = st.session_state["last_result"]
+        result = analyse([text]).iloc[0]
 
         col1, col2 = st.columns(2)
         with col1:
@@ -243,6 +337,10 @@ else:
                       f"confidence {result.sentiment_confidence:.0%}")
             probs = pd.Series(result._sent_probs, index=SENTIMENT_LABELS)
             st.bar_chart(probs)
+            st.caption("What this chart shows: how the RoBERTa sentiment model splits its "
+                       "belief between the three classes (softmax - the three bars always "
+                       "sum to 1). The tallest bar is the prediction; a very tall single "
+                       "bar means the model is confident.")
 
         with col2:
             st.subheader("Emotions")
@@ -250,6 +348,12 @@ else:
             probs = (pd.Series(result._emo_probs, index=EMOTION_LABELS)
                      .sort_values(ascending=False).head(8))
             st.bar_chart(probs)
+            st.caption("What this chart shows: the 8 strongest of the 28 emotion "
+                       "probabilities from the DeBERTa emotion model. Each emotion is an "
+                       "INDEPENDENT yes/no score (sigmoid - the bars do not sum to 1, "
+                       "because one post can carry several emotions). Every emotion above "
+                       f"the {EMOTION_THRESHOLD:.2f} threshold - tuned on the validation "
+                       "set - counts as 'detected'.")
 
         st.info("**Why both matter:** the sentiment tells you *how* the customer "
                 "feels overall, the emotions tell you *what kind* of reaction it is - "
