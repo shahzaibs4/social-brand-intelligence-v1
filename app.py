@@ -57,13 +57,17 @@ def clean_text(text):
 
 @st.cache_resource(show_spinner="Loading the fine-tuned models...")
 def load_models():
-    """Load both models once and keep them in memory."""
+    """Load both models once and keep them in memory.
+
+    low_cpu_mem_usage avoids a temporary double copy of the weights while
+    loading - important on small cloud machines (e.g. Streamlit Cloud).
+    """
     sent_tok = AutoTokenizer.from_pretrained(SENTIMENT_MODEL)
     sent_model = AutoModelForSequenceClassification.from_pretrained(
-        SENTIMENT_MODEL).to(device).eval()
+        SENTIMENT_MODEL, low_cpu_mem_usage=True).to(device).eval()
     emo_tok = AutoTokenizer.from_pretrained(EMOTION_MODEL)
     emo_model = AutoModelForSequenceClassification.from_pretrained(
-        EMOTION_MODEL).to(device).eval()
+        EMOTION_MODEL, low_cpu_mem_usage=True).to(device).eval()
     return sent_tok, sent_model, emo_tok, emo_model
 
 
