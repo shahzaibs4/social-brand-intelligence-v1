@@ -17,9 +17,20 @@ models/
 # Jupyter
 .ipynb_checkpoints/
 
-# Word documents (report drafts stay out of the code repo)
+# Documents (report drafts stay out of the code repo)
 *.docx
+*.doc
 ~$*.docx
+*.pdf
+*.pptx
+*.xlsx
+
+# Secrets - never commit credentials of any kind
+.env
+*.pem
+*.key
+*token*
+!*tokenizer*
 
 # OS files
 .DS_Store
