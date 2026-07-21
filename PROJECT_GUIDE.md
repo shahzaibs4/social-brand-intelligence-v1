@@ -314,8 +314,25 @@ model across varied workloads.
 
 **Data extensions (widen the coverage):**
 
-6. **Multilingual models** (XLM-RoBERTa, mDeBERTa) on non-English social media -
-   brand perception is global.
+6. **Multilingual extension** - brand perception is global, and the framework
+   is ready for it: the pipeline (preprocessing, fine-tuning recipe, threshold
+   tuning, evaluation, dashboard) is language-agnostic; only the English-only
+   encoders and datasets hold it to English today. Two concrete paths:
+   - *Path A - cross-lingual zero-shot (cheapest):* swap the encoders for
+     multilingual ones (XLM-RoBERTa, mDeBERTa-v3), fine-tune on the SAME
+     English data, and evaluate directly on other languages. Multilingual
+     encoders transfer task knowledge through their shared representation
+     space; the literature typically reports only a 5-15 point drop versus
+     English with zero new labelled data. In this pipeline it is a one-line
+     change in the models dictionary plus a rerun.
+   - *Path B - target-language fine-tuning (best quality):* fine-tune on
+     multilingual benchmarks such as the SemEval multilingual sentiment tasks
+     or XED (emotion annotations in 30+ languages), with per-language
+     threshold tuning.
+   Two caveats to study on the way: multilingual base models are about twice
+   the size (XLM-R base is 278M parameters), and the 28 GoEmotions categories
+   are culturally Anglophone - how emotions are expressed differs across
+   cultures, which is itself a worthwhile research question.
 7. **More platforms and domains** - Instagram, YouTube comments, product
    reviews, support tickets; cross-domain evaluation would show how far the
    models travel.
