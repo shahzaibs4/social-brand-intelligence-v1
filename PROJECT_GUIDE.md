@@ -107,6 +107,45 @@ tasks (6 runs in total):
 | RoBERTa | 125M | the accuracy end: improved BERT pre-training |
 | DeBERTa | 139M | the architecture end: disentangled attention, state of the art |
 
+**Why exactly these three models?**
+
+The three models were not picked randomly - each one represents a different
+*strategy* for improving the original BERT, so together they answer the
+question "which direction of improvement matters most for our tasks?":
+
+- **DistilBERT** represents **compression** (knowledge distillation). It keeps
+  ~97% of BERT's language understanding in a model that is 40% smaller and 60%
+  faster. If a compressed model is almost as good, companies should not pay
+  for a big one - this hypothesis can only be tested by including one.
+- **RoBERTa** represents **better training of the same architecture**. It is
+  identical to BERT inside, but pre-trained longer, on more data, with dynamic
+  masking. It shows how much performance comes purely from better pre-training.
+- **DeBERTa** represents **a better architecture**. Its disentangled attention
+  stores *what* a word is and *where* it is separately, which should help with
+  fine-grained distinctions. It shows how much performance comes from
+  architectural innovation.
+
+Together they span the practical trade-off space (fast-and-small vs
+accurate-and-large) AND the scientific one (compression vs training vs
+architecture). A comparison of three near-identical models would answer
+neither question.
+
+**Why not other candidates?**
+
+- **Plain BERT** - excluded because every included model is a documented
+  improvement over it; it would only reproduce known results and DistilBERT
+  already anchors the comparison to the BERT family.
+- **Large language models (GPT-style)** - recent evaluations (cited in the
+  paper, ref. [14]) show that *fine-tuned* small encoders remain equal or
+  better on domain-specific sentiment tasks while costing a fraction to run.
+  A brand monitor scoring millions of posts per day cannot afford LLM
+  inference costs, so encoders are the right tool class for this use case.
+- **Classical models** are not excluded - a TF-IDF + SVM baseline is included
+  precisely so the transformer advantage is measured, not assumed.
+- **Model sizes** - all three are "base" size (67-139M) so that the comparison
+  is apples-to-apples and everything trains on a single consumer machine,
+  which also makes the study fully reproducible for others.
+
 **What fine-tuning means here:** each model arrives already pre-trained on
 billions of words. We add a new classification head (dropout + linear layer)
 and update **all** weights on our task data. The head differs by task:
@@ -214,3 +253,84 @@ run it again. Fine-tuned models are saved into `models/`.
 5. notebook/evaluation.ipynb          -> Run All   (~15 min)
 6. streamlit run app.py               -> the dashboard
 ```
+
+## 11. Answers to the research questions
+
+**RQ1 - Which transformer model performs best?**
+There is no single winner, and that is itself the finding. **RoBERTa** is the
+best sentiment model (macro-F1 0.720). **DeBERTa** is the best emotion model
+(macro-F1 0.469). On the easy 3-class task the three models finish within 3.2
+points of each other; on the hard 28-label task the architectural differences
+become visible and DeBERTa's disentangled attention pays off. Practical answer:
+RoBERTa for polarity, DeBERTa for emotions, DistilBERT when speed matters more
+than the last few points.
+
+**RQ2 - Does emotion detection add value beyond sentiment?**
+Yes, measurably. When both best models scored the same 2,000 unseen posts, the
+772 posts labelled "negative" turned out to contain at least five clearly
+different emotional states (disapproval 10%, annoyance 9%, sadness 6%, anger
+5%, plus disappointment). Each of these requires a different business action -
+escalation, follow-up, product feedback - but a sentiment-only system collapses
+all of them into one undifferentiated alert. This is the empirical core of the
+project's argument.
+
+**RQ3 - How consistent are the models across platforms and task difficulty?**
+Every model loses roughly a third of its macro-F1 when moving from Twitter
+3-class sentiment to Reddit 28-label emotion, but not equally: DistilBERT
+drops 36.3%, RoBERTa 36.4%, and DeBERTa only 33.1%. DeBERTa is therefore the
+most robust architecture - it never wins the easy task but degrades most
+gracefully as difficulty rises, which matters for teams that must deploy one
+model across varied workloads.
+
+## 12. Honest limitations
+
+1. **Single random seed (42).** The sentiment ranking margin is comfortable
+   (1.9 points) but the emotion margin (1.1 points) could be sensitive to seed
+   variance. The pipeline supports re-running with other seeds unchanged.
+2. **One global decision threshold** for all 28 emotions. Per-class thresholds
+   would likely raise the absolute emotion scores further.
+3. **English only**, two platforms only. Nothing is known yet about other
+   languages or platforms like Instagram comments or product reviews.
+4. **DeBERTa v1, not v3** - the newer v3 was numerically unstable on the Apple
+   Metal (MPS) training backend used here; it should be revisited on CUDA
+   hardware.
+
+## 13. How can this work be extended?
+
+**Scientific extensions (strengthen the evidence):**
+
+1. **Multi-seed replication** - repeat all runs with seeds 43 and 44 and report
+   mean and standard deviation with a significance test. The training notebook
+   needs only the seed value changed; everything else is identical.
+2. **Per-class threshold optimisation** - tune one threshold per emotion on the
+   validation set instead of a single global cut-off; the rare emotions gain most.
+3. **Class-weighted or focal loss** - give rare emotions more weight during
+   training to fight the long-tailed label distribution at the source.
+4. **DeBERTa-v3 and newer encoders** (e.g. ModernBERT) on CUDA hardware - test
+   whether newer architectures push the emotion ceiling further.
+5. **LLM comparison** - benchmark GPT-class models in zero-shot and few-shot
+   mode on the same test sets to quantify the cost/quality trade-off against
+   fine-tuned encoders.
+
+**Data extensions (widen the coverage):**
+
+6. **Multilingual models** (XLM-RoBERTa, mDeBERTa) on non-English social media -
+   brand perception is global.
+7. **More platforms and domains** - Instagram, YouTube comments, product
+   reviews, support tickets; cross-domain evaluation would show how far the
+   models travel.
+8. **Aspect-based analysis** - link each detected emotion to the specific
+   product or service attribute that caused it ("angry *about delivery*",
+   "disappointed *by battery life*") - the most valuable next step for business
+   users.
+
+**Engineering extensions (make it production-grade):**
+
+9. **Real-time streaming** - connect the dashboard to live platform APIs and
+   score posts as they arrive, with alerting when negative emotion spikes.
+10. **Model compression of the winners** - distil or quantise the fine-tuned
+    RoBERTa/DeBERTa to serve their accuracy at DistilBERT speed.
+11. **A REST API service** around the two models so other company systems
+    (CRM, ticketing) can request predictions programmatically.
+12. **Human feedback loop** - let analysts correct wrong predictions in the
+    dashboard and periodically fine-tune on the corrections.
